@@ -57,7 +57,8 @@ def test_new_import_blocks_autofix_on_borderline_score():
     risk = assess_risk(
         original_code=original,
         fixed_code=fixed,
-        issues=[{"type": "Robustness", "severity": "Medium", "msg": "No input validation."}],
+        issues=[{"type": "Robustness", "severity": "Medium",
+                 "msg": "No input validation."}],
     )
     assert risk["should_autofix"] is False, "A fix that adds new imports on a borderline score must not auto-apply"
     assert risk["level"] in ("medium", "high")

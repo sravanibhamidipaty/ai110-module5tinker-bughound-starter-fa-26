@@ -35,13 +35,17 @@ class BugHoundAgent:
         if fixed_code.strip() == "":
             self._log("ACT", "No fix produced (refused, error, or empty output).")
 
-        risk = assess_risk(original_code=code_snippet, fixed_code=fixed_code, issues=issues)
-        self._log("TEST", f"Risk assessed as {risk.get('level', 'unknown')} (score={risk.get('score', '-')}).")
+        risk = assess_risk(original_code=code_snippet,
+                           fixed_code=fixed_code, issues=issues)
+        self._log(
+            "TEST", f"Risk assessed as {risk.get('level', 'unknown')} (score={risk.get('score', '-')}).")
 
         if risk.get("should_autofix"):
-            self._log("REFLECT", "Fix appears safe enough to auto-apply under current policy.")
+            self._log(
+                "REFLECT", "Fix appears safe enough to auto-apply under current policy.")
         else:
-            self._log("REFLECT", "Fix is not safe enough to auto-apply. Human review recommended.")
+            self._log(
+                "REFLECT", "Fix is not safe enough to auto-apply. Human review recommended.")
 
         return {
             "issues": issues,
@@ -71,15 +75,18 @@ class BugHoundAgent:
 
         # UPDATED: Added exception handling for API errors/rate limits
         try:
-            raw = self.client.complete(system_prompt=system_prompt, user_prompt=user_prompt)
+            raw = self.client.complete(
+                system_prompt=system_prompt, user_prompt=user_prompt)
         except Exception as e:
-            self._log("ANALYZE", f"API Error: {str(e)}. Falling back to heuristics.")
+            self._log(
+                "ANALYZE", f"API Error: {str(e)}. Falling back to heuristics.")
             return self._heuristic_analyze(code_snippet)
 
         issues = self._parse_json_array_of_issues(raw)
 
         if issues is None:
-            self._log("ANALYZE", "LLM output was not parseable JSON. Falling back to heuristics.")
+            self._log(
+                "ANALYZE", "LLM output was not parseable JSON. Falling back to heuristics.")
             return self._heuristic_analyze(code_snippet)
 
         return issues
@@ -107,15 +114,18 @@ class BugHoundAgent:
 
         # UPDATED: Added exception handling for API errors/rate limits
         try:
-            raw = self.client.complete(system_prompt=system_prompt, user_prompt=user_prompt)
+            raw = self.client.complete(
+                system_prompt=system_prompt, user_prompt=user_prompt)
         except Exception as e:
-            self._log("ACT", f"API Error: {str(e)}. Falling back to heuristic fixer.")
+            self._log(
+                "ACT", f"API Error: {str(e)}. Falling back to heuristic fixer.")
             return self._heuristic_fix(code_snippet, issues)
 
         cleaned = self._strip_code_fences(raw).strip()
 
         if not cleaned:
-            self._log("ACT", "LLM returned empty output. Falling back to heuristic fixer.")
+            self._log(
+                "ACT", "LLM returned empty output. Falling back to heuristic fixer.")
             return self._heuristic_fix(code_snippet, issues)
 
         return cleaned
@@ -159,7 +169,8 @@ class BugHoundAgent:
         fixed = code
 
         if any(i.get("type") == "Reliability" for i in issues):
-            fixed = re.sub(r"\bexcept\s*:\s*", "except Exception as e:\n        # [BugHound] log or handle the error\n        ", fixed)
+            fixed = re.sub(
+                r"\bexcept\s*:\s*", "except Exception as e:\n        # [BugHound] log or handle the error\n        ", fixed)
 
         if any(i.get("type") == "Code Quality" for i in issues):
             if "import logging" not in fixed:
@@ -190,11 +201,14 @@ class BugHoundAgent:
         for item in arr:
             if not isinstance(item, dict):
                 continue
+            msg = str(item.get("msg", "")).strip()
+            if not msg:
+                continue  # Skip items with no message — wrong schema or empty output
             issues.append(
                 {
                     "type": str(item.get("type", "Issue")),
                     "severity": str(item.get("severity", "Unknown")),
-                    "msg": str(item.get("msg", "")).strip(),
+                    "msg": msg,
                 }
             )
         return issues
@@ -216,12 +230,13 @@ class BugHoundAgent:
             elif s[i] == "]":
                 depth -= 1
                 if depth == 0:
-                    return s[start : i + 1]
+                    return s[start: i + 1]
         return None
 
     def _strip_code_fences(self, text: str) -> str:
         text = text.strip()
-        match = re.search(r"```(?:python)?\s*(.*?)\s*```", text, flags=re.DOTALL | re.IGNORECASE)
+        match = re.search(r"```(?:python)?\s*(.*?)\s*```",
+                          text, flags=re.DOTALL | re.IGNORECASE)
         if match:
             return match.group(1)
         return text

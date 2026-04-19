@@ -46,3 +46,19 @@ def test_missing_return_is_penalized():
     )
     assert risk["score"] < 100
     assert any("Return" in r or "return" in r for r in risk["reasons"])
+
+
+def test_new_import_blocks_autofix_on_borderline_score():
+    # One Medium issue scores 80 without the import check -> would be "low" -> autofix.
+    # Adding a new import deducts another 10 -> 70 -> "medium" -> no autofix.
+    # This test verifies the new-import guardrail flips the auto-fix decision.
+    original = "import logging\n\ndef add(a, b):\n    return a + b\n"
+    fixed = "import logging\nfrom typing import Union\n\ndef add(a: Union[int, float], b: Union[int, float]) -> Union[int, float]:\n    return a + b\n"
+    risk = assess_risk(
+        original_code=original,
+        fixed_code=fixed,
+        issues=[{"type": "Robustness", "severity": "Medium", "msg": "No input validation."}],
+    )
+    assert risk["should_autofix"] is False, "A fix that adds new imports on a borderline score must not auto-apply"
+    assert risk["level"] in ("medium", "high")
+    assert any("import" in r.lower() for r in risk["reasons"])

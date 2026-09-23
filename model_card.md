@@ -73,7 +73,7 @@ def add(a, b):
     return a + b
 ```
 
-The heuristic analyzer found **zero issues** and scored the code 100/low, recommending auto-apply of no changes. The agent trace revealed why: the LLM was called, returned a non-JSON response (the intentional `MockClient` behavior), and the agent silently fell back to heuristics, which found nothing wrong. The tool gave a false sense of confidence that the code was perfect, without signaling that its analyzer had degraded to a less capable fallback.
+The heuristic analyzer found **zero issues** and originally scored the code 100/low, recommending auto-apply of no changes — a false sense of confidence that the code was "safe to auto-fix" when there was nothing to fix. (This is the exact failure the Part 4 guardrail below now blocks: with no issues or an unchanged fix, `should_autofix` is forced to `False`.) The agent trace also revealed a second concern: when the LLM returns a non-JSON response, the agent silently falls back to heuristics without signaling that its analyzer degraded to a less capable fallback.
 
 **2. BugHound suggested a fix that felt unnecessary — `cleanish.py` in Gemini mode**
 
@@ -122,3 +122,40 @@ Currently, when the LLM returns unparseable output the agent silently falls back
 The fix is small: add a boolean field `"used_fallback": true/false` to the `analyze` return value, thread it through the result dict, and display a visible warning in the UI when it is `true` — e.g., *"LLM output was not valid JSON — results reflect heuristic analysis only, not LLM analysis."*
 
 This requires no new ML, no new rules, and no restructuring. It directly addresses the most dangerous failure mode observed: an analyzer that looks identical to a working one but is running in a degraded state.
+
+---
+
+## 9) Design changes I made (one per part)
+
+Each part of this tinker required one deliberate design decision. Here is what I
+changed, where, and the before/after effect I verified.
+
+**Part 2 — Reliability: validate LLM severity against a schema.**
+`bughound_agent._normalize_issues` previously accepted whatever `severity` the
+model returned (defaulting off-schema values to `"Unknown"`), which could feed
+garbage into the risk scorer that keys on `Low/Medium/High`. I changed it to
+validate against an allowed set and coerce off-schema values (e.g. `"critical"`,
+`"5"`) to `"Medium"` with a logged trace entry.
+*Before:* `severity="critical"` passed through unchanged.
+*After:* coerced to `"Medium"` + `Off-schema severity 'critical' ... coercing` log.
+
+**Part 3 — Safety: add a large-diff caution signal.**
+`reliability/risk_assessor.py` had no penalty for a fix that rewrites most of a
+file — it only checked shrinkage, removed returns, and new imports. I added a
+signal: if the net line delta exceeds 50% of the original size, deduct 25 points.
+*Before:* a low-severity issue + large rewrite scored 85 → low → `should_autofix=True`.
+*After:* same input scores 60 → medium → `should_autofix=False` (defers to human).
+
+**Part 4 — Guardrail: never auto-fix when there is nothing to fix.**
+A clean file (0 issues) scored 100 → low → `should_autofix=True`, greenlighting a
+non-existent change. I added a rule in `assess_risk`: if `issues` is empty OR the
+fixed code equals the original, force `should_autofix=False`.
+*Before:* `cleanish.py` → `should_autofix=True`.
+*After:* `should_autofix=False` with reason "nothing to change." Backed by two
+offline tests (`test_clean_file_with_no_issues_is_not_auto_fixed`,
+`test_comments_only_file_is_not_auto_fixed`) that fail without the guardrail and
+pass with it. Full suite: 11 tests passing.
+
+**Environment note:** the starter `requirements.txt` listed `google-generativeai`,
+but `llm_client.py` imports the newer `google-genai` SDK (`from google import genai`),
+so Gemini mode was broken out of the box until `google-genai` was installed.

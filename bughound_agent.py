@@ -196,6 +196,10 @@ class BugHoundAgent:
 
         return None
 
+    # Severities the downstream risk assessor and UI expect. Anything else
+    # from the model is off-schema and must be normalized, not passed through.
+    ALLOWED_SEVERITIES = {"low": "Low", "medium": "Medium", "high": "High"}
+
     def _normalize_issues(self, arr: List[Any]) -> List[Dict[str, str]]:
         issues: List[Dict[str, str]] = []
         for item in arr:
@@ -204,10 +208,26 @@ class BugHoundAgent:
             msg = str(item.get("msg", "")).strip()
             if not msg:
                 continue  # Skip items with no message — wrong schema or empty output
+
+            # RELIABILITY CHANGE (Part 2): validate severity against the allowed
+            # set instead of accepting whatever the model returns. Off-schema
+            # values (e.g. "critical", "warning", "5") are coerced to a safe
+            # "Medium" and logged, so bad AI output can't corrupt risk scoring.
+            raw_severity = str(item.get("severity", "")).strip().lower()
+            if raw_severity in self.ALLOWED_SEVERITIES:
+                severity = self.ALLOWED_SEVERITIES[raw_severity]
+            else:
+                self._log(
+                    "ANALYZE",
+                    f"Off-schema severity '{item.get('severity')}' from model; "
+                    "coercing to 'Medium'.",
+                )
+                severity = "Medium"
+
             issues.append(
                 {
                     "type": str(item.get("type", "Issue")),
-                    "severity": str(item.get("severity", "Unknown")),
+                    "severity": severity,
                     "msg": msg,
                 }
             )

@@ -47,3 +47,30 @@ def test_mock_client_forces_llm_fallback_to_heuristics_for_analysis():
     assert any(issue.get("type") == "Code Quality" for issue in result["issues"])
     # Ensure we logged the fallback path
     assert any("Falling back to heuristics" in entry.get("message", "") for entry in result["logs"])
+
+
+def test_clean_file_with_no_issues_is_not_auto_fixed():
+    """
+    Guardrail (Part 4): a file with no detectable issues must NOT be flagged
+    as safe to auto-apply a fix. Before the guardrail, 0 issues -> score 100
+    -> level "low" -> should_autofix=True, which greenlit a non-existent fix.
+    Runs fully offline (client=None), asserts a DECISION.
+    """
+    agent = BugHoundAgent(client=None)
+    clean_code = "import logging\n\ndef add(a, b):\n    logging.info('adding')\n    return a + b\n"
+    result = agent.run(clean_code)
+
+    assert result["issues"] == []
+    # The fix should be a no-op (identical to input)...
+    assert result["fixed_code"].strip() == clean_code.strip()
+    # ...and the agent must NOT recommend auto-applying it.
+    assert result["risk"]["should_autofix"] is False
+
+
+def test_comments_only_file_is_not_auto_fixed():
+    """A comments-only file has no issues and must not be auto-fixed."""
+    agent = BugHoundAgent(client=None)
+    result = agent.run("# just a comment\n# another comment\n")
+
+    assert result["issues"] == []
+    assert result["risk"]["should_autofix"] is False

@@ -53,6 +53,21 @@ def assess_risk(
         score -= 20
         reasons.append("Fixed code is much shorter than original.")
 
+    # ----------------------------
+    # NEW risk signal (Part 3): large diffs are riskier to auto-apply.
+    # Even a "low severity" fix that rewrites most of the file changes a lot
+    # of behavior surface, so a big net line change should push us toward
+    # caution / human review rather than silent auto-fix.
+    # ----------------------------
+    line_delta = abs(len(fixed_lines) - len(original_lines))
+    original_len = max(1, len(original_lines))
+    if line_delta > original_len * 0.5:
+        score -= 25
+        reasons.append(
+            f"Large change: {line_delta} lines differ from a "
+            f"{original_len}-line original (big diff, review recommended)."
+        )
+
     if "return" in original_code and "return" not in fixed_code:
         score -= 30
         reasons.append("Return statements may have been removed.")
@@ -96,6 +111,20 @@ def assess_risk(
     # Auto-fix policy
     # ----------------------------
     should_autofix = level == "low"
+
+    # GUARDRAIL (Part 4): never recommend auto-applying a "fix" when there are
+    # no issues, or when the fixed code is identical to the original. Without
+    # this, a clean file (0 issues) scores 100 -> "low" -> should_autofix=True,
+    # which greenlights applying a change that does not exist. Auto-fix should
+    # only be offered when there is an actual, non-empty change to apply.
+    no_issues = len(issues) == 0
+    no_change = fixed_code.strip() == original_code.strip()
+    if no_issues or no_change:
+        should_autofix = False
+        reasons.append(
+            "No auto-fix offered: nothing to change "
+            "(no issues found or fix is identical to the original)."
+        )
 
     if not reasons:
         reasons.append("No significant risks detected.")
